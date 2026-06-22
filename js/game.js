@@ -321,6 +321,11 @@
   canvas.addEventListener('touchstart', e => { e.preventDefault(); audioInit(); if(state==='playing') jump(worlds[0]); }, {passive:false});
   window.addEventListener('touchend', () => endJump(worlds[0]));
 
+  document.getElementById('devSkip').addEventListener('click', e => {
+    e.stopPropagation();
+    if (state === 'playing') worlds.forEach(w => { w.score = 600; });
+  });
+
   menuBtns.querySelectorAll('button').forEach(b =>
     b.addEventListener('click', e => { e.stopPropagation(); audioInit(); startGame(+b.dataset.n); }));
   document.getElementById('againBtn').addEventListener('click', e => { e.stopPropagation(); startGame(numPlayers); });
