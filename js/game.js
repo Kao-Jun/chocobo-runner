@@ -384,7 +384,11 @@
     gilTimer--;
     if (gilTimer <= 0) {
       const gs = genGils();
-      aliveWorlds().forEach(w => { for (const g of gs) w.gils.push({ ...g }); });
+      aliveWorlds().forEach(w => {
+        for (const g of gs) {
+          if (!gilHitsObstacle(g, w.obstacles)) w.gils.push({ ...g });
+        }
+      });
       gilTimer = 120 + Math.random()*120;
     }
 
@@ -401,6 +405,10 @@
     return { x: ch.x + SPR_W*0.16, y: ch.y - SPR_H + 6*SC, w: SPR_W*0.56, h: SPR_H - 10*SC };
   }
   const overlap = (a,b) => a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+  const gilHitsObstacle = (g, obstacles) => {
+    const gb = { x: g.x - g.r, y: g.y - g.r, w: g.r * 2, h: g.r * 2 };
+    return obstacles.some(o => overlap(gb, o));
+  };
 
   function updateWorld(w, view) {
     const ch = w.chocobo, gy = view.gy;
