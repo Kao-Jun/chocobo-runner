@@ -14,7 +14,8 @@
     <span id="mute" title="Couper le son (M)">🔊</span>
     <span class="ico" title="Volume musique">🎵</span>
     <input id="musicVol" type="range" min="0" max="1" step="0.01" value="0.6" title="Volume de la musique">
-    <button id="devSkip" class="dev" title="DEV — passer à 600 pts">▶600</button>
+    <button id="devSkip600"  class="dev" title="DEV — passer à 600 pts">▶600</button>
+    <button id="devSkip1000" class="dev" title="DEV — passer à 1000 pts">▶1000</button>
   </div>
 
   <div id="overlay">
@@ -24,6 +25,13 @@
       <button data-n="1">1 Joueur</button>
       <button class="blue" data-n="2">2 Joueurs · écran partagé</button>
     </div>
+    <div class="btnrow hidden" id="levelBtns">
+      <button data-mode="level" data-lv="1">Niveau 1 · Cristal</button>
+      <button data-mode="level" data-lv="2" class="green">Niveau 2 · Forêt</button>
+      <button data-mode="level" data-lv="3" class="sand">Niveau 3 · Désert</button>
+      <button data-mode="fullRun" class="lilac">Parcours Complet</button>
+      <button id="backBtn" class="back">← Retour</button>
+    </div>
     <div class="btnrow hidden" id="overBtns">
       <button id="againBtn">Rejouer</button>
       <button id="menuBtn" class="lilac">Menu</button>
@@ -32,6 +40,10 @@
   </div>
 </div>
 
+<script src="js/features.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/levels.js"></script>
+<script src="js/enemies.js"></script>
 <script src="js/game.js"></script>
 </body>
 </html>

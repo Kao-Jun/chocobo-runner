@@ -76,9 +76,16 @@ button {
 }
 button.blue  { background: linear-gradient(#bfe4ff,#76b9ec); color: #093356; box-shadow: 0 5px 0 #2f6ea8; }
 button.lilac { background: linear-gradient(#e7ddf5,#c3b2e0); color: #2a2040; box-shadow: 0 5px 0 #6b5a8a; }
+button.green { background: linear-gradient(#b8f0b0,#6ac860); color: #0a2a08; box-shadow: 0 5px 0 #3a8a2a; }
+button.sand  { background: linear-gradient(#f5e0a0,#e0b850); color: #3a2a00; box-shadow: 0 5px 0 #a07820; }
+button.back  { background: rgba(255,255,255,.12); color: #ccc; font-size:13px; padding:8px 18px;
+               border-radius:9px; box-shadow: none; border:1px solid rgba(255,255,255,.2); }
 button:active        { transform: translateY(4px); box-shadow: 0 1px 0 #b56b00; }
 button.blue:active   { box-shadow: 0 1px 0 #2f6ea8; }
 button.lilac:active  { box-shadow: 0 1px 0 #6b5a8a; }
+button.green:active  { box-shadow: 0 1px 0 #3a8a2a; }
+button.sand:active   { box-shadow: 0 1px 0 #a07820; }
+button.back:active   { transform: translateY(1px); box-shadow: none; }
 
 .key   { background: #ffd86b; color: #5a3b00; padding: 1px 8px; border-radius: 6px; font-weight: 800; }
 .key.b { background: #9fd0f5; color: #093356; }
