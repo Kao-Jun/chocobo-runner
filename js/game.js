@@ -207,6 +207,17 @@
     trunk:'#5a3a1c', leaf:'#3aa05a', leafLit:'#5fc078', leafSh:'#2c7d46',
   };
 
+  const ENV_FOREST = {
+    out:'#0f1a0f',
+    sky:['#0b1f0e','#1a3d20','#2d6e3a','#4a8f52'],
+    cloud:'#c8e8c8', cloudLit:'#e8f8e8',
+    canopyFar:'#1a3a1a', canopyFarSh:'#0f2a0f',
+    canopyMid:'#2a4a2a', canopyMidSh:'#1a341a',
+    treeTrunk:'#2a1a0a', treeLeaf:'#2a6a1a', treeLeafLit:'#4a9a2a', treeLeafSh:'#1a4a0a',
+    ground:'#2a1a08', groundTop:'#1a3a0a', tuft:'#3a7a1a',
+    fern:'#1a5a1a', fernLit:'#3a8a2a',
+  };
+
   /* ========================= LAYOUT / STATE ========================= */
   let state = 'menu';          // menu | playing | over
   let numPlayers = 1;
@@ -352,7 +363,10 @@
   }
 
   /* ========================= DIRECTOR ========================= */
-  function genObstacle() {
+  function genObstacle(level = 1) {
+    if (level === 2 && Math.random() < 0.30) {
+      return { type:'snake', x: VIEW_W+24, y: VIEW_GY, w: 44*SC, h: 14*SC, phase: Math.random()*Math.PI*2 };
+    }
     if (Math.random() < 0.66) {
       const h = (30 + Math.random()*32) * SC;
       return { type:'ground', x: VIEW_W+24, y: VIEW_GY - h, w: (22 + Math.random()*16)*SC, h };
@@ -377,8 +391,7 @@
 
     spawnTimer--;
     if (spawnTimer <= 0) {
-      const o = genObstacle();
-      aliveWorlds().forEach(w => w.obstacles.push({ ...o }));
+      aliveWorlds().forEach(w => w.obstacles.push(genObstacle(w.score >= 500 ? 2 : 1)));
       spawnTimer = Math.max(42, 92 - speed*3/SC) + Math.random()*48;
     }
     gilTimer--;
@@ -421,7 +434,15 @@
       if (ch.y >= gy) { ch.y = gy; ch.vy = 0; ch.onGround = true; }
     }
 
-    for (const o of w.obstacles) o.x -= speed;
+    for (const o of w.obstacles) {
+      o.x -= speed;
+      if (o.type === 'snake') {
+        o.phase += 0.055;
+        const amp = 52 * SC;
+        const h = Math.max(14*SC, amp * 0.5 * (1 + Math.sin(o.phase)));
+        o.h = h; o.y = gy - h;
+      }
+    }
     w.obstacles = w.obstacles.filter(o => o.x + o.w > -12);
     for (const g of w.gils) if (!g.got) g.x -= speed;
     w.gils = w.gils.filter(g => g.x > -20 && !g.got);
@@ -451,8 +472,135 @@
   function stroke(c, lw) { ctx.lineJoin='round'; ctx.lineCap='round'; ctx.strokeStyle=c; ctx.lineWidth=lw; ctx.stroke(); }
   function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
+  /* ===================== FOREST HELPERS ===================== */
+  function toonCloudForest(x, y, s) {
+    ctx.fillStyle = ENV_FOREST.cloud;
+    ctx.beginPath();
+    ctx.arc(x, y, s*0.5, 0, 7); ctx.arc(x+s*0.5, y+s*0.08, s*0.42, 0, 7);
+    ctx.arc(x+s*0.95, y, s*0.36, 0, 7); ctx.arc(x+s*0.45, y-s*0.18, s*0.34, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = ENV_FOREST.cloudLit;
+    ctx.beginPath(); ctx.ellipse(x+s*0.4, y-s*0.18, s*0.5, s*0.16, 0, 0, 7); ctx.fill();
+  }
+
+  function drawBigTree(x, gy) {
+    const u = SC;
+    ctx.fillStyle = ENV_FOREST.treeTrunk; ctx.fillRect(x-7*u, gy-58*u, 14*u, 60*u);
+    roundRect(x-7*u, gy-58*u, 14*u, 60*u, 2); stroke(ENV_FOREST.out, 2);
+    ctx.fillStyle = ENV_FOREST.treeLeaf;
+    ctx.beginPath();
+    ctx.arc(x, gy-74*u, 34*u, 0, 7); ctx.arc(x-22*u, gy-62*u, 23*u, 0, 7); ctx.arc(x+22*u, gy-64*u, 23*u, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = ENV_FOREST.treeLeafSh;
+    ctx.beginPath(); ctx.arc(x+13*u, gy-62*u, 24*u, 0, 7); ctx.fill();
+    ctx.fillStyle = ENV_FOREST.treeLeafLit;
+    ctx.beginPath(); ctx.arc(x-11*u, gy-82*u, 15*u, 0, 7); ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, gy-74*u, 34*u, 0, 7); ctx.arc(x-22*u, gy-62*u, 23*u, 0, 7); ctx.arc(x+22*u, gy-64*u, 23*u, 0, 7);
+    stroke(ENV_FOREST.out, 2);
+  }
+
+  function drawFernClump(x, gy) {
+    const u = SC;
+    for (let i = -2; i <= 2; i++) {
+      const angle = i * 0.4;
+      ctx.strokeStyle = i % 2 === 0 ? ENV_FOREST.fern : ENV_FOREST.fernLit;
+      ctx.lineWidth = 2*u; ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(x, gy);
+      ctx.quadraticCurveTo(x + Math.sin(angle)*18*u, gy-18*u, x + Math.sin(angle)*30*u, gy-36*u);
+      ctx.stroke();
+      ctx.fillStyle = i % 2 === 0 ? ENV_FOREST.fern : ENV_FOREST.fernLit;
+      for (let j = 1; j <= 3; j++) {
+        const t = j / 4;
+        const lx = x + Math.sin(angle)*30*u*t, ly = gy - 36*u*t;
+        ctx.save(); ctx.translate(lx, ly); ctx.rotate(angle - 0.5);
+        ctx.beginPath(); ctx.ellipse(0, 0, 7*u, 3*u, 0, 0, 7); ctx.fill();
+        ctx.restore();
+      }
+    }
+  }
+
+  function drawForestHills(scroll, gy, vw, vh) {
+    const tw = 260*SC, off = scroll % tw;
+    for (let i=-1; i*tw - off < vw + tw; i++) {
+      const x = i*tw - off;
+      ctx.fillStyle = ENV_FOREST.canopyMid;
+      ctx.beginPath(); ctx.ellipse(x + tw*0.5, gy + 36*SC, tw*0.62, 64*SC, 0, Math.PI, 0); ctx.fill();
+      ctx.fillStyle = ENV_FOREST.treeLeafLit;
+      ctx.beginPath(); ctx.ellipse(x + tw*0.5, gy + 36*SC, tw*0.62, 64*SC, 0, Math.PI*1.15, Math.PI*1.85); ctx.fill();
+      drawBigTree(x + tw*0.78, gy);
+    }
+  }
+
+  function drawForestBackground(vw, vh, gy, w) {
+    const sky = ctx.createLinearGradient(0,0,0,gy+20);
+    sky.addColorStop(0, ENV_FOREST.sky[0]); sky.addColorStop(0.4, ENV_FOREST.sky[1]);
+    sky.addColorStop(0.75, ENV_FOREST.sky[2]); sky.addColorStop(1, ENV_FOREST.sky[3]);
+    ctx.fillStyle = sky; ctx.fillRect(0,0,vw,gy+20);
+
+    ctx.save();
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle = '#a0ff80';
+    for (let i = 0; i < 7; i++) {
+      const x0 = vw * 0.55 + (i * 68 - 170) * SC;
+      ctx.beginPath();
+      ctx.moveTo(x0 - 18*SC, 0); ctx.lineTo(x0 + 18*SC, 0);
+      ctx.lineTo(x0 + 55*SC, gy); ctx.lineTo(x0 + 15*SC, gy);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalAlpha = 1; ctx.restore();
+
+    const co = (w.scroll*0.05) % (vw+260);
+    for (let k=0;k<3;k++){
+      const cx = ((k*340 - co) % (vw+260) + (vw+260)) % (vw+260) - 130;
+      toonCloudForest(cx, vh*(0.16 + k*0.07), (70 + k*12)*SC);
+    }
+
+    drawRange(w.scroll*0.10, gy, 300*SC, 150*SC, ENV_FOREST.canopyFar, ENV_FOREST.canopyFarSh, false, vw);
+    drawRange(w.scroll*0.18, gy, 230*SC, 118*SC, ENV_FOREST.canopyMid, ENV_FOREST.canopyMidSh, false, vw);
+
+    const off2 = (w.scroll*0.34) % (520*SC);
+    for (let i=-1; i*520*SC - off2 < vw + 520*SC; i++) {
+      const bx = i*520*SC - off2;
+      drawBigTree(bx + 60*SC, gy);
+      drawBigTree(bx + 200*SC, gy);
+      drawFernClump(bx + 390*SC, gy);
+      drawBigTree(bx + 450*SC, gy);
+    }
+
+    drawAirship(airship.x, vh*0.18 + (airship.y-50)*0.4, w.anim);
+    drawForestHills(w.scroll*0.55, gy, vw, vh);
+    for (const f of w.feathers) drawFeather(f.x, f.y, f.r, f.sway);
+  }
+
+  function drawForestGround(vw, vh, gy, w) {
+    ctx.fillStyle = ENV_FOREST.ground; ctx.fillRect(0, gy, vw, vh-gy);
+    ctx.fillStyle = ENV_FOREST.groundTop; ctx.fillRect(0, gy, vw, 7*SC);
+    const off = w.scroll % (44*SC);
+    for (let x=-off; x<vw; x+=44*SC) {
+      ctx.save(); ctx.translate(x+22*SC, gy+14*SC); ctx.rotate(0.4);
+      ctx.fillStyle = '#5a3010';
+      ctx.beginPath(); ctx.ellipse(0, 0, 8*SC, 4*SC, 0, 0, 7); ctx.fill();
+      ctx.restore();
+      ctx.save(); ctx.translate(x+8*SC, gy+20*SC); ctx.rotate(-0.6);
+      ctx.fillStyle = '#3a2008';
+      ctx.beginPath(); ctx.ellipse(0, 0, 6*SC, 3*SC, 0, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    ctx.strokeStyle = ENV_FOREST.tuft; ctx.lineWidth = 2*SC; ctx.lineCap='round';
+    for (let x=-off; x<vw; x+=44*SC) {
+      ctx.beginPath();
+      ctx.moveTo(x+22*SC, gy+8*SC); ctx.lineTo(x+22*SC, gy+1*SC);
+      ctx.moveTo(x+26*SC, gy+8*SC); ctx.lineTo(x+30*SC, gy+1*SC);
+      ctx.moveTo(x+18*SC, gy+8*SC); ctx.lineTo(x+15*SC, gy+2*SC);
+      ctx.stroke();
+    }
+  }
+
   /* ========================= BACKGROUND ========================= */
   function drawBackground(vw, vh, gy, w) {
+    if (w.score >= 500) { drawForestBackground(vw, vh, gy, w); return; }
     // ciel en bandes (cell shading)
     const sky = ctx.createLinearGradient(0,0,0,gy+20);
     sky.addColorStop(0, ENV.sky[0]); sky.addColorStop(0.42, ENV.sky[1]);
@@ -614,6 +762,7 @@
 
   /* ========================= FOREGROUND ========================= */
   function drawGround(vw, vh, gy, w) {
+    if (w.score >= 500) { drawForestGround(vw, vh, gy, w); return; }
     ctx.fillStyle = ENV.ground; ctx.fillRect(0, gy, vw, vh-gy);
     ctx.fillStyle = ENV.groundTop; ctx.fillRect(0, gy, vw, 7*SC);
     ctx.fillStyle = ENV.dirt;
@@ -626,7 +775,35 @@
     }
   }
 
+  function drawSnake(o) {
+    const u = SC;
+    const bot = o.y + o.h, top = o.y, cx = o.x + o.w * 0.5;
+    const segments = Math.max(2, Math.round(o.h / (10*u)));
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const sy = bot - t * o.h;
+      const r = Math.max(3*u, (8 - t*3) * u);
+      ctx.fillStyle = i % 2 === 0 ? '#2a8a1a' : '#3aaa24';
+      ctx.beginPath(); ctx.ellipse(cx, sy, r, r*0.85, 0, 0, 7); ctx.fill();
+    }
+    ctx.fillStyle = '#2a8a1a';
+    ctx.beginPath(); ctx.ellipse(cx, top, 10*u, 8*u, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#4ac030';
+    ctx.beginPath(); ctx.ellipse(cx-2*u, top-2*u, 5*u, 4*u, -0.3, 0, 7); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(cx-4*u, top-2*u, 2.5*u, 0, 7); ctx.arc(cx+4*u, top-2*u, 2.5*u, 0, 7); ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.arc(cx-3.5*u, top-2*u, 1.2*u, 0, 7); ctx.arc(cx+4.5*u, top-2*u, 1.2*u, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#ff3030'; ctx.lineWidth = 1.5*u; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, top+5*u); ctx.lineTo(cx, top+10*u);
+    ctx.lineTo(cx-3*u, top+14*u); ctx.moveTo(cx, top+10*u); ctx.lineTo(cx+3*u, top+14*u);
+    ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx, top, 10*u, 8*u, 0, 0, 7); stroke(ENV_FOREST.out, 2);
+  }
+
   function drawObstacle(o) {
+    if (o.type === 'snake') { drawSnake(o); return; }
     if (o.type === 'ground') {
       ctx.fillStyle = '#7a5a86'; roundRect(o.x, o.y, o.w, o.h, 5*SC); ctx.fill();
       ctx.fillStyle = '#5e4068'; roundRect(o.x + o.w*0.5, o.y, o.w*0.5, o.h, 5*SC); ctx.fill();
