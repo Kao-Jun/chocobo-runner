@@ -1,0 +1,80 @@
+/* ===================== Chocobo Runner — styles ===================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  background: #0c0913;
+  font-family: 'Trebuchet MS', 'Segoe UI', Tahoma, sans-serif;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; user-select: none;
+}
+
+#wrap { position: relative; width: min(96vw, 168vh); aspect-ratio: 16 / 9; }
+
+canvas {
+  display: block; width: 100%; height: 100%;
+  border-radius: 14px;
+  box-shadow: 0 18px 50px rgba(0,0,0,.65);
+  image-rendering: pixelated;
+  touch-action: manipulation;
+}
+
+/* ----- barre de contrôle audio (haut-droite) ----- */
+#audiobar {
+  position: absolute; top: 12px; right: 14px; z-index: 3;
+  display: flex; align-items: center; gap: 8px;
+  background: rgba(0,0,0,.38); border-radius: 11px; padding: 5px 10px;
+  color: #fff;
+}
+#audiobar .ico { font-size: 18px; line-height: 1; }
+#mute { cursor: pointer; font-size: 20px; line-height: 1; }
+#musicVol {
+  -webkit-appearance: none; appearance: none;
+  width: 96px; height: 5px; border-radius: 4px; cursor: pointer;
+  background: linear-gradient(#ffd86b, #ffb43d);
+}
+#musicVol::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 15px; height: 15px; border-radius: 50%;
+  background: #fff; border: 2px solid #c98f12; cursor: pointer;
+}
+#musicVol::-moz-range-thumb {
+  width: 15px; height: 15px; border-radius: 50%;
+  background: #fff; border: 2px solid #c98f12; cursor: pointer;
+}
+
+/* ----- overlay (menu / game over) ----- */
+#overlay {
+  position: absolute; inset: 0; z-index: 2;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; color: #fff; text-align: center; padding: 24px;
+  background: radial-gradient(ellipse at center, rgba(40,28,64,.45), rgba(12,9,19,.78));
+  backdrop-filter: blur(3px); border-radius: 14px;
+}
+#overlay.hidden { display: none; }
+#overlay h1 {
+  font-size: clamp(30px, 5vw, 52px); color: #ffd86b;
+  text-shadow: 0 3px 0 #a85f00, 0 0 26px rgba(255,216,107,.55);
+  letter-spacing: 1px;
+}
+#overlay p { font-size: clamp(13px, 1.7vw, 17px); opacity: .95; max-width: 560px; line-height: 1.6; }
+
+.btnrow { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+.btnrow.hidden { display: none; }
+
+button {
+  background: linear-gradient(#ffe07a, #ffcb3d); border: none; color: #5a3b00;
+  font-weight: 800; font-size: clamp(15px,1.8vw,19px); padding: 13px 26px;
+  border-radius: 11px; cursor: pointer; box-shadow: 0 5px 0 #b56b00;
+  transition: transform .05s, box-shadow .05s; font-family: inherit;
+}
+button.blue  { background: linear-gradient(#bfe4ff,#76b9ec); color: #093356; box-shadow: 0 5px 0 #2f6ea8; }
+button.lilac { background: linear-gradient(#e7ddf5,#c3b2e0); color: #2a2040; box-shadow: 0 5px 0 #6b5a8a; }
+button:active        { transform: translateY(4px); box-shadow: 0 1px 0 #b56b00; }
+button.blue:active   { box-shadow: 0 1px 0 #2f6ea8; }
+button.lilac:active  { box-shadow: 0 1px 0 #6b5a8a; }
+
+.key   { background: #ffd86b; color: #5a3b00; padding: 1px 8px; border-radius: 6px; font-weight: 800; }
+.key.b { background: #9fd0f5; color: #093356; }
+.small { font-size: clamp(11px,1.4vw,13px); opacity: .82; }
+.legend { display: flex; gap: 26px; flex-wrap: wrap; justify-content: center; }
