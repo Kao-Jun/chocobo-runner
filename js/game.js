@@ -1,143 +1,43 @@
 /* =====================================================================
-   Chocobo Runner — logique de jeu
-   - Runner 16:9, solo ou 2 joueurs en écran partagé (chocobo jaune / bleu)
-   - Décor Final Fantasy cell-shadé en parallaxe
-   - Musique de fond : assets/ChocoboTheme.mp3 (boucle gapless)
-   - Effets sonores synthétisés (saut / gil / mort)
+   Chocobo Runner — Core (v2)
+   Dépend de : CR.FEATURES, CR.Audio, CR.Levels, CR.Enemies
    ===================================================================== */
 (() => {
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;     // 960 x 540 (16:9)
+  const W = canvas.width, H = canvas.height;
 
-  const overlay  = document.getElementById('overlay');
-  const ovmsg    = document.getElementById('ovmsg');
-  const menuBtns = document.getElementById('menuBtns');
-  const overBtns = document.getElementById('overBtns');
-  const controls = document.getElementById('controls');
-  const muteEl   = document.getElementById('mute');
-  const volEl    = document.getElementById('musicVol');
+  const overlay   = document.getElementById('overlay');
+  const ovmsg     = document.getElementById('ovmsg');
+  const menuBtns  = document.getElementById('menuBtns');
+  const levelBtns = document.getElementById('levelBtns');
+  const overBtns  = document.getElementById('overBtns');
+  const controls  = document.getElementById('controls');
+  const muteEl    = document.getElementById('mute');
+  const volEl     = document.getElementById('musicVol');
 
   let best = +(localStorage.getItem('chocoboBest') || 0);
 
-  /* ============================ AUDIO ============================ */
-  let actx = null, muted = (localStorage.getItem('chocoboMuted') === '1');
-  const clamp01 = v => (isNaN(v) ? 0.6 : Math.max(0, Math.min(1, v)));
-
-  function audioInit() {
-    if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
-    if (actx && actx.state === 'suspended') actx.resume();
-    Music.ensureLoaded();
-  }
-
-  /* ---- effets sonores (oscillateurs Web Audio, inchangés) ---- */
-  function tone(freq, dur, type, vol, slideTo) {
-    if (!actx || muted) return;
-    const t = actx.currentTime;
-    const osc = actx.createOscillator(), g = actx.createGain();
-    osc.type = type; osc.frequency.setValueAtTime(freq, t);
-    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
-    g.gain.setValueAtTime(vol, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    osc.connect(g); g.connect(actx.destination);
-    osc.start(t); osc.stop(t + dur);
-  }
-  const sfxJump = () => tone(440, 0.16, 'square', 0.05, 880);
-  const sfxGil  = () => { tone(880,0.08,'square',0.05); setTimeout(()=>tone(1318,0.12,'square',0.05),70); };
-  const sfxDie  = () => { tone(330,0.18,'sawtooth',0.06,110); setTimeout(()=>tone(160,0.3,'sawtooth',0.06,60),120); };
-
-  /* ---- musique de fond : ChocoboTheme.mp3 ----
-     Chemin 1 (servi en HTTP) : fetch -> decodeAudioData -> AudioBufferSource
-        avec loop = true  ⇒  bouclage échantillon-précis, sans coupure.
-     Chemin 2 (ouverture file://, fetch bloqué) : élément <audio loop>,
-        volume piloté directement (repli robuste qui garde le son). */
-  const MUSIC_URL = 'assets/ChocoboTheme.mp3';
-  const Music = {
-    gain: null, buffer: null, src: null, el: null,
-    mode: null, loaded: false, loading: false, want: false,
-    volume: clamp01(+(localStorage.getItem('chocoboMusicVol') ?? 0.6)),
-
-    ensureLoaded() {
-      if (this.loaded || this.loading || !actx) return;
-      this.loading = true;
-      this.gain = actx.createGain();
-      this.gain.gain.value = muted ? 0 : this.volume;
-      this.gain.connect(actx.destination);
-      fetch(MUSIC_URL)
-        .then(r => { if (!r.ok) throw new Error('http ' + r.status); return r.arrayBuffer(); })
-        .then(ab => actx.decodeAudioData(ab))
-        .then(buf => { this.buffer = buf; this.mode = 'buffer'; this._ready(); })
-        .catch(() => this._loadElement());
-    },
-    _loadElement() {
-      try {
-        this.el = new Audio(MUSIC_URL);
-        this.el.loop = true; this.el.preload = 'auto';
-        this.el.volume = muted ? 0 : this.volume;
-        this.mode = 'element';
-        this._ready();
-      } catch (e) { this.loading = false; }
-    },
-    _ready() { this.loaded = true; this.loading = false; if (this.want) this.start(); },
-
-    start() {
-      this.want = true;
-      if (muted) return;
-      if (!this.loaded) { this.ensureLoaded(); return; }
-      if (this.mode === 'buffer') {
-        if (this.src) return;
-        const s = actx.createBufferSource();
-        s.buffer = this.buffer; s.loop = true;     // boucle gapless
-        s.connect(this.gain); s.start();
-        this.src = s;
-      } else if (this.el) {
-        this.el.volume = muted ? 0 : this.volume;
-        this.el.play().catch(() => {});
-      }
-    },
-    stop() {
-      this.want = false;
-      if (this.src) { try { this.src.stop(); } catch (e) {} this.src = null; }
-      if (this.el) this.el.pause();
-    },
-    setVolume(v) {
-      this.volume = clamp01(v);
-      localStorage.setItem('chocoboMusicVol', this.volume);
-      const g = muted ? 0 : this.volume;
-      if (this.gain) this.gain.gain.value = g;
-      if (this.el) this.el.volume = g;
-    },
-    applyMute() {
-      if (muted) this.stop();
-      else { this.setVolume(this.volume); if (state === 'playing') this.start(); }
-    },
-  };
-  const musicStart = () => Music.start();
-  const musicStop  = () => Music.stop();
-
-  function toggleMute() {
-    muted = !muted;
-    localStorage.setItem('chocoboMuted', muted ? '1' : '0');
-    muteEl.textContent = muted ? '🔇' : '🔊';
-    Music.applyMute();
-  }
-
-  // init UI audio
-  muteEl.textContent = muted ? '🔇' : '🔊';
-  volEl.value = Music.volume;
-  muteEl.addEventListener('click', e => { e.stopPropagation(); audioInit(); toggleMute(); });
+  /* ---- init UI audio ---- */
+  muteEl.textContent = CR.Audio.getMuted() ? '🔇' : '🔊';
+  volEl.value = CR.Audio.Music.volume;
+  muteEl.addEventListener('click', e => { e.stopPropagation(); CR.Audio.audioInit(); toggleMute(); });
   volEl.addEventListener('click', e => e.stopPropagation());
   volEl.addEventListener('input', e => {
-    audioInit();
+    CR.Audio.audioInit();
     const v = +e.target.value;
-    if (muted && v > 0) { muted = false; localStorage.setItem('chocoboMuted','0'); muteEl.textContent = '🔊'; }
-    Music.setVolume(v);
-    if (state === 'playing') Music.start();
+    if (CR.Audio.getMuted() && v > 0) { CR.Audio.setMuted(false); muteEl.textContent = '🔊'; }
+    CR.Audio.Music.setVolume(v);
+    if (state === 'playing') CR.Audio.Music.start();
   });
 
+  function toggleMute() {
+    CR.Audio.setMuted(!CR.Audio.getMuted());
+    muteEl.textContent = CR.Audio.getMuted() ? '🔇' : '🔊';
+  }
+
   /* ====================== PIXEL-ART CHOCOBO ======================
-     Sprite d'après assets/Chocobo.png. La palette est "swappable"
-     pour obtenir la version jaune (J1) et la version bleue (J2).   */
+     Sprite d'après assets/Chocobo.png.                            */
   const BODY = [
     "......H.H.H.......",
     ".....oHoHoHo......",
@@ -158,21 +58,19 @@
     ".oaYYYYYYYYo......",
     "..oaaYYYYYoo......",
   ];
-  const LEGS_A = ["...oLLo.oLLo......","...oLo...oLo......","..CccC.CccC......."];
-  const LEGS_B = ["...oLLo.oLLo......","....oLo.oLo.......","...CccC.CccC......"];
+  const LEGS_A    = ["...oLLo.oLLo......","...oLo...oLo......","..CccC.CccC......."];
+  const LEGS_B    = ["...oLLo.oLLo......","....oLo.oLo.......","...CccC.CccC......"];
   const LEGS_JUMP = ["..oLLo.oLLo.......","..CccC.CccC......."];
   const frameRun1 = BODY.concat(LEGS_A);
   const frameRun2 = BODY.concat(LEGS_B);
   const frameJump = BODY.concat(LEGS_JUMP);
   const SPR_COLS = 18, SPR_ROWS = 21;
 
-  // Palette jaune (or chaud, yeux bleus, joues roses, bandana vert)
   const PAL_YELLOW = {
     o:'#6b4a1e', O:'#4a3214', Y:'#f5c842', H:'#ffe79a', y:'#d9982f', a:'#bd7f24',
     b:'#e69a3a', B:'#c47a22', m:'#b33a2a', w:'#ffffff', e:'#3a7fc4', k:'#16243a',
     p:'#f0a3a3', s:'#86a83e', S:'#5e7d28', L:'#d98a3a', C:'#d8cfb8', c:'#8f856b',
   };
-  // Palette bleue (azur, yeux ambre, bandana rouge)
   const PAL_BLUE = {
     o:'#1e3a5e', O:'#142a44', Y:'#5fb0e8', H:'#c3e8ff', y:'#3585c4', a:'#256296',
     b:'#e69a3a', B:'#c47a22', m:'#b33a2a', w:'#ffffff', e:'#ffcf5a', k:'#2a1a08',
@@ -192,48 +90,23 @@
     }
   }
 
-  /* ====================== ENVIRONMENT PALETTE ====================== */
-  const ENV = {
-    out:'#2c2140',
-    sky:['#241e4a','#5a3f8c','#b5638f','#f2a85f'],
-    sun:'#fff1cc', sunGlow:'rgba(255,214,138,.45)',
-    cloud:'#f7d9c4', cloudLit:'#fff0e2',
-    mtnBack:'#6a5a9a', mtnBackSh:'#544a82', snow:'#e7def5', snowSh:'#bcb0dd',
-    mtnFront:'#4f4880', mtnFrontSh:'#3c3666',
-    castle:'#5b5374', castleSh:'#443d5b', roof:'#e3bb4d', roofSh:'#c0962c', glow:'#ffe7a4',
-    crystal:'#bdf3ff', crystalMid:'#5fc6e6', crystalSh:'#2f93c2', crystalGlow:'rgba(150,235,255,.5)',
-    hill:'#3f8a55', hillLit:'#5fae6f', hillSh:'#2f6b41', hillRim:'#9be0a6',
-    ground:'#3f7a4a', groundTop:'#2c5e39', tuft:'#74bd84', dirt:'#6b4a2a',
-    trunk:'#5a3a1c', leaf:'#3aa05a', leafLit:'#5fc078', leafSh:'#2c7d46',
-  };
-
-  const ENV_FOREST = {
-    out:'#0f1a0f',
-    sky:['#0b1f0e','#1a3d20','#2d6e3a','#4a8f52'],
-    cloud:'#c8e8c8', cloudLit:'#e8f8e8',
-    canopyFar:'#1a3a1a', canopyFarSh:'#0f2a0f',
-    canopyMid:'#2a4a2a', canopyMidSh:'#1a341a',
-    treeTrunk:'#2a1a0a', treeLeaf:'#2a6a1a', treeLeafLit:'#4a9a2a', treeLeafSh:'#1a4a0a',
-    ground:'#2a1a08', groundTop:'#1a3a0a', tuft:'#3a7a1a',
-    fern:'#1a5a1a', fernLit:'#3a8a2a',
-  };
-
   /* ========================= LAYOUT / STATE ========================= */
-  let state = 'menu';          // menu | playing | over
-  let numPlayers = 1;
-  let viewports = [];          // {x,y,w,h,gy,label,col}
-  let worlds = [];
+  let state = 'menu';       // menu | levelSelect | playing | over
+  let numPlayers  = 1;
+  let gameMode    = 'fullRun';   // 'level' | 'fullRun'
+  let startLevel  = 1;           // 1 | 2 | 3 (ignoré en fullRun)
+  let viewports = [], worlds = [];
   let SC = 1, PX = 3, SPR_W = 0, SPR_H = 0, BASE_SPEED = 6;
   let speed = 6, frame = 0;
   let spawnTimer = 0, gilTimer = 0, airship = { x: 0, y: 0 };
-  const VIEW_W = W;            // chaque viewport occupe toute la largeur
-  let VIEW_GY = 0;             // sol de référence pour le spawn (vues identiques en multi)
+  const VIEW_W = W;
+  let VIEW_GY = 0;
 
   function makeWorld(pal, label, col) {
     return {
       pal, label, col,
       chocobo: { x: 96, y: 0, vy: 0, onGround: true, ducking: false },
-      obstacles: [], gils: [], sparkles: [], feathers: [],
+      obstacles: [], gils: [], sparkles: [], feathers: [], projectiles: [],
       scroll: 0, anim: 0, score: 0, gilCount: 0, alive: true,
       holdJump: false,
     };
@@ -281,20 +154,20 @@
   function jump(world) {
     if (!world || !world.alive) return;
     const ch = world.chocobo;
-    if (ch.onGround) { ch.vy = -12.8 * SC; ch.onGround = false; world.holdJump = true; sfxJump(); }
+    if (ch.onGround) { ch.vy = -12.8 * SC; ch.onGround = false; world.holdJump = true; CR.Audio.sfxJump(); }
   }
   const endJump = world => { if (world) world.holdJump = false; };
   const duck = (world, on) => { if (world && world.alive) world.chocobo.ducking = on; };
 
   window.addEventListener('keydown', e => {
-    if (e.code === 'KeyM') { audioInit(); toggleMute(); return; }
+    if (e.code === 'KeyM') { CR.Audio.audioInit(); toggleMute(); return; }
     if (state === 'over') {
-      if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); startGame(numPlayers); }
+      if (e.code === 'Space' || e.code === 'Enter') { e.preventDefault(); startGame(numPlayers, gameMode, startLevel); }
       return;
     }
     if (state !== 'playing') return;
     if (numPlayers === 1) {
-      if (['Space','ArrowUp','KeyW'].includes(e.code)) { e.preventDefault(); audioInit(); jump(worlds[0]); }
+      if (['Space','ArrowUp','KeyW'].includes(e.code)) { e.preventDefault(); CR.Audio.audioInit(); jump(worlds[0]); }
       else if (['ArrowDown','KeyS'].includes(e.code)) { e.preventDefault(); duck(worlds[0], true); }
     } else {
       if (e.code === 'KeyW') { e.preventDefault(); jump(worlds[0]); }
@@ -315,44 +188,94 @@
       else if (e.code === 'ArrowDown') duck(worlds[1], false);
     }
   });
-  // souris/tactile : commande le J1 (ou le joueur unique)
-  canvas.addEventListener('mousedown', e => { e.preventDefault(); audioInit(); if(state==='playing') jump(worlds[0]); });
+  canvas.addEventListener('mousedown', e => { e.preventDefault(); CR.Audio.audioInit(); if(state==='playing') jump(worlds[0]); });
   window.addEventListener('mouseup', () => endJump(worlds[0]));
-  canvas.addEventListener('touchstart', e => { e.preventDefault(); audioInit(); if(state==='playing') jump(worlds[0]); }, {passive:false});
+  canvas.addEventListener('touchstart', e => { e.preventDefault(); CR.Audio.audioInit(); if(state==='playing') jump(worlds[0]); }, {passive:false});
   window.addEventListener('touchend', () => endJump(worlds[0]));
 
-  document.getElementById('devSkip').addEventListener('click', e => {
-    e.stopPropagation();
-    if (state === 'playing') worlds.forEach(w => { w.score = 600; });
-  });
+  // devSkip buttons
+  if (CR.FEATURES.devSkip) {
+    document.getElementById('devSkip600').addEventListener('click', e => {
+      e.stopPropagation();
+      if (state === 'playing') worlds.forEach(w => { w.score = 600; });
+    });
+    document.getElementById('devSkip1000').addEventListener('click', e => {
+      e.stopPropagation();
+      if (state === 'playing') worlds.forEach(w => { w.score = 1000; });
+    });
+  } else {
+    ['devSkip600','devSkip1000'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+  }
 
+  // Menu principal → sélection niveau
   menuBtns.querySelectorAll('button').forEach(b =>
-    b.addEventListener('click', e => { e.stopPropagation(); audioInit(); startGame(+b.dataset.n); }));
-  document.getElementById('againBtn').addEventListener('click', e => { e.stopPropagation(); startGame(numPlayers); });
-  document.getElementById('menuBtn').addEventListener('click', e => { e.stopPropagation(); showMenu(); });
+    b.addEventListener('click', e => {
+      e.stopPropagation(); CR.Audio.audioInit();
+      numPlayers = +b.dataset.n;
+      showLevelSelect();
+    }));
+
+  // Sélection niveau → partie
+  levelBtns.querySelectorAll('button[data-mode]').forEach(b =>
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      const mode = b.dataset.mode;
+      const lv = b.dataset.lv ? +b.dataset.lv : 1;
+      startGame(numPlayers, mode, lv);
+    }));
+
+  document.getElementById('backBtn').addEventListener('click', e => { e.stopPropagation(); showMenu(); });
+  document.getElementById('againBtn').addEventListener('click', e => { e.stopPropagation(); startGame(numPlayers, gameMode, startLevel); });
+  document.getElementById('menuBtn').addEventListener('click',  e => { e.stopPropagation(); showMenu(); });
 
   /* =========================== FLOW =========================== */
-  function startGame(n) {
+  function startGame(n, mode, lv) {
+    numPlayers = n; gameMode = mode; startLevel = lv || 1;
     configure(n); reset();
     state = 'playing'; overlay.classList.add('hidden');
-    musicStart();
+    CR.Audio.Music.start();
   }
+
   function showMenu() {
-    state = 'menu'; musicStop();
+    state = 'menu'; CR.Audio.Music.stop();
     overlay.classList.remove('hidden');
-    menuBtns.classList.remove('hidden'); overBtns.classList.add('hidden');
+    menuBtns.classList.remove('hidden');
+    levelBtns.classList.add('hidden');
+    overBtns.classList.add('hidden');
     document.querySelector('#overlay h1').textContent = '🐤 Chocobo Runner';
     ovmsg.textContent = 'Cours à travers les terres de cristal, saute les obstacles et ramasse les gils !';
     controls.innerHTML =
       '<span><b>1 Joueur</b> — <span class="key">Espace</span>/<span class="key">↑</span>/Clic sauter · <span class="key">↓</span> baisser</span>' +
       '<span><b>2 Joueurs</b> — J1 <span class="key">W</span>/<span class="key">S</span> · J2 <span class="key b">↑</span>/<span class="key b">↓</span></span>';
   }
+
+  function showLevelSelect() {
+    state = 'levelSelect';
+    overlay.classList.remove('hidden');
+    menuBtns.classList.add('hidden');
+    levelBtns.classList.remove('hidden');
+    overBtns.classList.add('hidden');
+    document.querySelector('#overlay h1').textContent = numPlayers === 1 ? '1 Joueur' : '2 Joueurs';
+    ovmsg.textContent = 'Choisis un niveau ou lance le Parcours Complet';
+    controls.innerHTML = '';
+    // Feature flags → griser les boutons désactivés
+    const btn2 = levelBtns.querySelector('[data-lv="2"]');
+    const btn3 = levelBtns.querySelector('[data-lv="3"]');
+    const btnFull = levelBtns.querySelector('[data-mode="fullRun"]');
+    if (btn2) btn2.disabled = !CR.FEATURES.level2;
+    if (btn3) btn3.disabled = !CR.FEATURES.level3;
+    if (btnFull) btnFull.disabled = !CR.FEATURES.fullRun;
+  }
+
   function gameOver() {
-    state = 'over'; musicStop(); sfxDie();
+    state = 'over'; CR.Audio.Music.stop(); CR.Audio.sfxDie();
     const top = Math.max(...worlds.map(w => Math.floor(w.score)));
     best = Math.max(best, top); localStorage.setItem('chocoboBest', best);
     overlay.classList.remove('hidden');
-    menuBtns.classList.add('hidden'); overBtns.classList.remove('hidden');
+    menuBtns.classList.add('hidden'); levelBtns.classList.add('hidden'); overBtns.classList.remove('hidden');
     if (numPlayers === 1) {
       document.querySelector('#overlay h1').textContent = '💥 Perdu !';
       ovmsg.innerHTML = `Score : <b>${Math.floor(worlds[0].score)}</b> · Gils : <b>${worlds[0].gilCount}</b> · Record : <b>${best}</b>`;
@@ -368,17 +291,6 @@
   }
 
   /* ========================= DIRECTOR ========================= */
-  function genObstacle(level = 1) {
-    if (level === 2 && Math.random() < 0.30) {
-      return { type:'snake', x: VIEW_W+24, y: VIEW_GY, w: 44*SC, h: 14*SC, phase: Math.random()*Math.PI*2 };
-    }
-    if (Math.random() < 0.66) {
-      const h = (30 + Math.random()*32) * SC;
-      return { type:'ground', x: VIEW_W+24, y: VIEW_GY - h, w: (22 + Math.random()*16)*SC, h };
-    }
-    const y = VIEW_GY - (66 + Math.random()*26) * SC;
-    return { type:'fly', x: VIEW_W+24, y, w: 46*SC, h: 28*SC };
-  }
   function genGils() {
     const n = 3 + (Math.random()*3|0), arc = Math.random() < 0.5;
     const baseY = arc ? VIEW_GY - 95*SC : VIEW_GY - 34*SC, out = [];
@@ -396,7 +308,10 @@
 
     spawnTimer--;
     if (spawnTimer <= 0) {
-      aliveWorlds().forEach(w => w.obstacles.push(genObstacle(w.score >= 500 ? 2 : 1)));
+      aliveWorlds().forEach(w => {
+        const lv = CR.Levels.getWorldLevel(w, gameMode, startLevel);
+        w.obstacles.push(CR.Enemies.genObstacle(lv, VIEW_W, VIEW_GY));
+      });
       spawnTimer = Math.max(42, 92 - speed*3/SC) + Math.random()*48;
     }
     gilTimer--;
@@ -424,7 +339,7 @@
   }
   const overlap = (a,b) => a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
   const gilHitsObstacle = (g, obstacles) => {
-    const gb = { x: g.x - g.r, y: g.y - g.r, w: g.r * 2, h: g.r * 2 };
+    const gb = { x: g.x-g.r, y: g.y-g.r, w: g.r*2, h: g.r*2 };
     return obstacles.some(o => overlap(gb, o));
   };
 
@@ -439,16 +354,10 @@
       if (ch.y >= gy) { ch.y = gy; ch.vy = 0; ch.onGround = true; }
     }
 
-    for (const o of w.obstacles) {
-      o.x -= speed;
-      if (o.type === 'snake') {
-        o.phase += 0.055;
-        const amp = 52 * SC;
-        const h = Math.max(14*SC, amp * 0.5 * (1 + Math.sin(o.phase)));
-        o.h = h; o.y = gy - h;
-      }
-    }
-    w.obstacles = w.obstacles.filter(o => o.x + o.w > -12);
+    CR.Enemies.updateObstacles(w.obstacles, w.projectiles, speed, gy);
+    w.obstacles  = w.obstacles.filter(o => o.x + o.w > -12);
+    w.projectiles = w.projectiles.filter(p => p.x + p.w > -12);
+
     for (const g of w.gils) if (!g.got) g.x -= speed;
     w.gils = w.gils.filter(g => g.x > -20 && !g.got);
 
@@ -461,10 +370,11 @@
     }
 
     const hb = hitbox(ch);
-    for (const o of w.obstacles) if (overlap(hb, o)) { w.alive = false; if (numPlayers===1) sfxDie(); return; }
+    for (const o of w.obstacles) if (overlap(hb, o)) { w.alive = false; if (numPlayers===1) CR.Audio.sfxDie(); return; }
+    for (const p of w.projectiles) if (overlap(hb, p)) { w.alive = false; if (numPlayers===1) CR.Audio.sfxDie(); return; }
     for (const g of w.gils) {
       if (!g.got && overlap(hb, { x:g.x-g.r, y:g.y-g.r, w:g.r*2, h:g.r*2 })) {
-        g.got = true; w.gilCount++; w.score += 10; sfxGil();
+        g.got = true; w.gilCount++; w.score += 10; CR.Audio.sfxGil();
         for (let i=0;i<8;i++) w.sparkles.push({
           x:g.x, y:g.y, vx:(Math.random()-0.5)*4, vy:(Math.random()-0.7)*4, life:24+Math.random()*10
         });
@@ -473,364 +383,6 @@
   }
 
   /* ========================= DRAW HELPERS ========================= */
-  function poly(pts) { ctx.beginPath(); ctx.moveTo(pts[0],pts[1]); for(let i=2;i<pts.length;i+=2) ctx.lineTo(pts[i],pts[i+1]); ctx.closePath(); }
-  function stroke(c, lw) { ctx.lineJoin='round'; ctx.lineCap='round'; ctx.strokeStyle=c; ctx.lineWidth=lw; ctx.stroke(); }
-  function roundRect(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
-
-  /* ===================== FOREST HELPERS ===================== */
-  function toonCloudForest(x, y, s) {
-    ctx.fillStyle = ENV_FOREST.cloud;
-    ctx.beginPath();
-    ctx.arc(x, y, s*0.5, 0, 7); ctx.arc(x+s*0.5, y+s*0.08, s*0.42, 0, 7);
-    ctx.arc(x+s*0.95, y, s*0.36, 0, 7); ctx.arc(x+s*0.45, y-s*0.18, s*0.34, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = ENV_FOREST.cloudLit;
-    ctx.beginPath(); ctx.ellipse(x+s*0.4, y-s*0.18, s*0.5, s*0.16, 0, 0, 7); ctx.fill();
-  }
-
-  function drawBigTree(x, gy) {
-    const u = SC;
-    ctx.fillStyle = ENV_FOREST.treeTrunk; ctx.fillRect(x-7*u, gy-58*u, 14*u, 60*u);
-    roundRect(x-7*u, gy-58*u, 14*u, 60*u, 2); stroke(ENV_FOREST.out, 2);
-    ctx.fillStyle = ENV_FOREST.treeLeaf;
-    ctx.beginPath();
-    ctx.arc(x, gy-74*u, 34*u, 0, 7); ctx.arc(x-22*u, gy-62*u, 23*u, 0, 7); ctx.arc(x+22*u, gy-64*u, 23*u, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = ENV_FOREST.treeLeafSh;
-    ctx.beginPath(); ctx.arc(x+13*u, gy-62*u, 24*u, 0, 7); ctx.fill();
-    ctx.fillStyle = ENV_FOREST.treeLeafLit;
-    ctx.beginPath(); ctx.arc(x-11*u, gy-82*u, 15*u, 0, 7); ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, gy-74*u, 34*u, 0, 7); ctx.arc(x-22*u, gy-62*u, 23*u, 0, 7); ctx.arc(x+22*u, gy-64*u, 23*u, 0, 7);
-    stroke(ENV_FOREST.out, 2);
-  }
-
-  function drawFernClump(x, gy) {
-    const u = SC;
-    for (let i = -2; i <= 2; i++) {
-      const angle = i * 0.4;
-      ctx.strokeStyle = i % 2 === 0 ? ENV_FOREST.fern : ENV_FOREST.fernLit;
-      ctx.lineWidth = 2*u; ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(x, gy);
-      ctx.quadraticCurveTo(x + Math.sin(angle)*18*u, gy-18*u, x + Math.sin(angle)*30*u, gy-36*u);
-      ctx.stroke();
-      ctx.fillStyle = i % 2 === 0 ? ENV_FOREST.fern : ENV_FOREST.fernLit;
-      for (let j = 1; j <= 3; j++) {
-        const t = j / 4;
-        const lx = x + Math.sin(angle)*30*u*t, ly = gy - 36*u*t;
-        ctx.save(); ctx.translate(lx, ly); ctx.rotate(angle - 0.5);
-        ctx.beginPath(); ctx.ellipse(0, 0, 7*u, 3*u, 0, 0, 7); ctx.fill();
-        ctx.restore();
-      }
-    }
-  }
-
-  function drawForestHills(scroll, gy, vw, vh) {
-    const tw = 260*SC, off = scroll % tw;
-    for (let i=-1; i*tw - off < vw + tw; i++) {
-      const x = i*tw - off;
-      ctx.fillStyle = ENV_FOREST.canopyMid;
-      ctx.beginPath(); ctx.ellipse(x + tw*0.5, gy + 36*SC, tw*0.62, 64*SC, 0, Math.PI, 0); ctx.fill();
-      ctx.fillStyle = ENV_FOREST.treeLeafLit;
-      ctx.beginPath(); ctx.ellipse(x + tw*0.5, gy + 36*SC, tw*0.62, 64*SC, 0, Math.PI*1.15, Math.PI*1.85); ctx.fill();
-      drawBigTree(x + tw*0.78, gy);
-    }
-  }
-
-  function drawForestBackground(vw, vh, gy, w) {
-    const sky = ctx.createLinearGradient(0,0,0,gy+20);
-    sky.addColorStop(0, ENV_FOREST.sky[0]); sky.addColorStop(0.4, ENV_FOREST.sky[1]);
-    sky.addColorStop(0.75, ENV_FOREST.sky[2]); sky.addColorStop(1, ENV_FOREST.sky[3]);
-    ctx.fillStyle = sky; ctx.fillRect(0,0,vw,gy+20);
-
-    ctx.save();
-    ctx.globalAlpha = 0.06;
-    ctx.fillStyle = '#a0ff80';
-    for (let i = 0; i < 7; i++) {
-      const x0 = vw * 0.55 + (i * 68 - 170) * SC;
-      ctx.beginPath();
-      ctx.moveTo(x0 - 18*SC, 0); ctx.lineTo(x0 + 18*SC, 0);
-      ctx.lineTo(x0 + 55*SC, gy); ctx.lineTo(x0 + 15*SC, gy);
-      ctx.closePath(); ctx.fill();
-    }
-    ctx.globalAlpha = 1; ctx.restore();
-
-    const co = (w.scroll*0.05) % (vw+260);
-    for (let k=0;k<3;k++){
-      const cx = ((k*340 - co) % (vw+260) + (vw+260)) % (vw+260) - 130;
-      toonCloudForest(cx, vh*(0.16 + k*0.07), (70 + k*12)*SC);
-    }
-
-    drawRange(w.scroll*0.10, gy, 300*SC, 150*SC, ENV_FOREST.canopyFar, ENV_FOREST.canopyFarSh, false, vw);
-    drawRange(w.scroll*0.18, gy, 230*SC, 118*SC, ENV_FOREST.canopyMid, ENV_FOREST.canopyMidSh, false, vw);
-
-    const off2 = (w.scroll*0.34) % (520*SC);
-    for (let i=-1; i*520*SC - off2 < vw + 520*SC; i++) {
-      const bx = i*520*SC - off2;
-      drawBigTree(bx + 60*SC, gy);
-      drawBigTree(bx + 200*SC, gy);
-      drawFernClump(bx + 390*SC, gy);
-      drawBigTree(bx + 450*SC, gy);
-    }
-
-    drawAirship(airship.x, vh*0.18 + (airship.y-50)*0.4, w.anim);
-    drawForestHills(w.scroll*0.55, gy, vw, vh);
-    for (const f of w.feathers) drawFeather(f.x, f.y, f.r, f.sway);
-  }
-
-  function drawForestGround(vw, vh, gy, w) {
-    ctx.fillStyle = ENV_FOREST.ground; ctx.fillRect(0, gy, vw, vh-gy);
-    ctx.fillStyle = ENV_FOREST.groundTop; ctx.fillRect(0, gy, vw, 7*SC);
-    const off = w.scroll % (44*SC);
-    for (let x=-off; x<vw; x+=44*SC) {
-      ctx.save(); ctx.translate(x+22*SC, gy+14*SC); ctx.rotate(0.4);
-      ctx.fillStyle = '#5a3010';
-      ctx.beginPath(); ctx.ellipse(0, 0, 8*SC, 4*SC, 0, 0, 7); ctx.fill();
-      ctx.restore();
-      ctx.save(); ctx.translate(x+8*SC, gy+20*SC); ctx.rotate(-0.6);
-      ctx.fillStyle = '#3a2008';
-      ctx.beginPath(); ctx.ellipse(0, 0, 6*SC, 3*SC, 0, 0, 7); ctx.fill();
-      ctx.restore();
-    }
-    ctx.strokeStyle = ENV_FOREST.tuft; ctx.lineWidth = 2*SC; ctx.lineCap='round';
-    for (let x=-off; x<vw; x+=44*SC) {
-      ctx.beginPath();
-      ctx.moveTo(x+22*SC, gy+8*SC); ctx.lineTo(x+22*SC, gy+1*SC);
-      ctx.moveTo(x+26*SC, gy+8*SC); ctx.lineTo(x+30*SC, gy+1*SC);
-      ctx.moveTo(x+18*SC, gy+8*SC); ctx.lineTo(x+15*SC, gy+2*SC);
-      ctx.stroke();
-    }
-  }
-
-  /* ========================= BACKGROUND ========================= */
-  function drawBackground(vw, vh, gy, w) {
-    if (w.score >= 500) { drawForestBackground(vw, vh, gy, w); return; }
-    // ciel en bandes (cell shading)
-    const sky = ctx.createLinearGradient(0,0,0,gy+20);
-    sky.addColorStop(0, ENV.sky[0]); sky.addColorStop(0.42, ENV.sky[1]);
-    sky.addColorStop(0.72, ENV.sky[2]); sky.addColorStop(1, ENV.sky[3]);
-    ctx.fillStyle = sky; ctx.fillRect(0,0,vw,gy+20);
-
-    // soleil
-    const sx = vw*0.74, sy = vh*0.26;
-    ctx.fillStyle = ENV.sunGlow; ctx.beginPath(); ctx.arc(sx, sy, 58*SC+18, 0, 7); ctx.fill();
-    ctx.fillStyle = ENV.sun;     ctx.beginPath(); ctx.arc(sx, sy, 40*SC+8, 0, 7); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 2; ctx.stroke();
-
-    // nuages plats
-    const co = (w.scroll*0.05) % (vw+260);
-    for (let k=0;k<3;k++){
-      const cx = ((k*340 - co) % (vw+260) + (vw+260)) % (vw+260) - 130;
-      const cy = vh*(0.16 + k*0.07);
-      toonCloud(cx, cy, (70 + k*12)*SC);
-    }
-
-    // montagnes lointaines (range arrière)
-    drawRange(w.scroll*0.10, gy, 300*SC, 150*SC, ENV.mtnBack, ENV.mtnBackSh, true, vw);
-    // montagnes proches (range avant)
-    drawRange(w.scroll*0.18, gy, 230*SC, 118*SC, ENV.mtnFront, ENV.mtnFrontSh, true, vw);
-
-    // château + cristaux flottants (couche médiane)
-    const off2 = (w.scroll*0.34) % (520*SC);
-    for (let i=-1; i*520*SC - off2 < vw + 520*SC; i++) {
-      const bx = i*520*SC - off2;
-      drawCastle(bx + 80*SC, gy, w.anim);
-      drawCrystal(bx + 360*SC, gy - 150*SC, 1.0*SC, w.anim, i*2);
-      drawCrystal(bx + 290*SC, gy - 205*SC, 0.7*SC, w.anim, i*2+1);
-    }
-
-    // dirigeable
-    drawAirship(airship.x, vh*0.18 + (airship.y-50)*0.4, w.anim);
-
-    // collines proches
-    drawHills(w.scroll*0.55, gy, vw, vh);
-
-    // plumes flottantes (ambiance)
-    for (const f of w.feathers) drawFeather(f.x, f.y, f.r, f.sway);
-  }
-
-  function toonCloud(x, y, s) {
-    ctx.fillStyle = ENV.cloud;
-    ctx.beginPath();
-    ctx.arc(x, y, s*0.5, 0, 7); ctx.arc(x+s*0.5, y+s*0.08, s*0.42, 0, 7);
-    ctx.arc(x+s*0.95, y, s*0.36, 0, 7); ctx.arc(x+s*0.45, y-s*0.18, s*0.34, 0, 7);
-    ctx.fill();
-    ctx.fillStyle = ENV.cloudLit;
-    ctx.beginPath(); ctx.ellipse(x+s*0.4, y-s*0.18, s*0.5, s*0.16, 0, 0, 7); ctx.fill();
-  }
-
-  function drawRange(scroll, gy, tw, th, base, shadow, snow, vw) {
-    const off = scroll % tw;
-    for (let i=-1; i*tw - off < vw + tw; i++) {
-      const x = i*tw - off, peak = x + tw*0.5;
-      ctx.fillStyle = base; poly([x, gy, peak, gy-th, x+tw, gy]); ctx.fill();
-      ctx.fillStyle = shadow; poly([peak, gy-th, x+tw, gy, peak, gy]); ctx.fill();
-      poly([x, gy, peak, gy-th, x+tw, gy]); stroke(ENV.out, 2);
-      if (snow) {
-        const cap = th*0.26;
-        ctx.fillStyle = ENV.snow;
-        poly([peak - cap*0.7, gy-th+cap, peak, gy-th, peak + cap*0.7, gy-th+cap, peak+cap*0.3, gy-th+cap*1.4, peak, gy-th+cap*0.9, peak-cap*0.3, gy-th+cap*1.4]); ctx.fill();
-        ctx.fillStyle = ENV.snowSh;
-        poly([peak, gy-th, peak+cap*0.7, gy-th+cap, peak+cap*0.3, gy-th+cap*1.4, peak, gy-th+cap*0.9]); ctx.fill();
-      }
-    }
-  }
-
-  function drawCastle(x, gy, anim) {
-    const u = SC;
-    ctx.fillStyle = ENV.castle; ctx.fillRect(x, gy-92*u, 94*u, 92*u);
-    ctx.fillStyle = ENV.castleSh; ctx.fillRect(x+60*u, gy-92*u, 34*u, 92*u);
-    roundRect(x, gy-92*u, 94*u, 92*u, 2); stroke(ENV.out, 2);
-    for (const tx of [x-16*u, x+94*u]) {
-      ctx.fillStyle = ENV.castle; ctx.fillRect(tx, gy-72*u, 16*u, 72*u);
-      ctx.fillStyle = ENV.castleSh; ctx.fillRect(tx+10*u, gy-72*u, 6*u, 72*u);
-      ctx.fillStyle = ENV.roof; poly([tx-3*u, gy-72*u, tx+8*u, gy-92*u, tx+19*u, gy-72*u]); ctx.fill(); stroke(ENV.out,2);
-    }
-    ctx.fillStyle = ENV.castle; ctx.fillRect(x+32*u, gy-132*u, 30*u, 44*u);
-    ctx.fillStyle = ENV.castleSh; ctx.fillRect(x+50*u, gy-132*u, 12*u, 44*u);
-    ctx.fillStyle = ENV.roof; poly([x+28*u, gy-132*u, x+47*u, gy-162*u, x+66*u, gy-132*u]); ctx.fill();
-    ctx.fillStyle = ENV.roofSh; poly([x+47*u, gy-162*u, x+66*u, gy-132*u, x+47*u, gy-132*u]); ctx.fill();
-    poly([x+28*u, gy-132*u, x+47*u, gy-162*u, x+66*u, gy-132*u]); stroke(ENV.out, 2);
-    ctx.fillStyle = ENV.castle;
-    for (let i=0;i<5;i++) ctx.fillRect(x+6*u+i*18*u, gy-100*u, 10*u, 10*u);
-    const glow = 0.6 + 0.4*Math.sin(anim*0.05);
-    ctx.fillStyle = `rgba(255,231,164,${glow})`;
-    ctx.fillRect(x+42*u, gy-118*u, 10*u, 16*u);
-    ctx.fillRect(x+18*u, gy-58*u, 9*u, 14*u);
-    ctx.fillRect(x+64*u, gy-58*u, 9*u, 14*u);
-  }
-
-  function drawCrystal(x, y, s, anim, idx) {
-    // bob basé sur le temps d'animation (stable) + phase par cristal — pas de jitter
-    const bob = Math.sin(anim*0.045 + idx*1.7) * 6 * SC;
-    y += bob;
-    ctx.save();
-    ctx.fillStyle = ENV.crystalGlow;
-    ctx.beginPath(); ctx.arc(x, y, 30*s, 0, 7); ctx.fill();
-    const top=y-34*s, bot=y+32*s;
-    ctx.fillStyle = ENV.crystalMid;
-    poly([x, top, x+17*s, y-6*s, x+11*s, bot, x-11*s, bot, x-17*s, y-6*s]); ctx.fill();
-    ctx.fillStyle = ENV.crystalSh;
-    poly([x, top, x+17*s, y-6*s, x+11*s, bot, x, y]); ctx.fill();
-    ctx.fillStyle = ENV.crystal;
-    poly([x, top, x-17*s, y-6*s, x-11*s, bot, x, y]); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,.7)';
-    poly([x, top, x-9*s, y-4*s, x-3*s, y]); ctx.fill();
-    poly([x, top, x+17*s, y-6*s, x+11*s, bot, x-11*s, bot, x-17*s, y-6*s]); stroke(ENV.out, 2);
-    ctx.restore();
-  }
-
-  function drawAirship(x, y, anim) {
-    const u = SC, bob = Math.sin(anim*0.04)*4*u; y += bob;
-    ctx.save(); ctx.translate(x, y);
-    ctx.fillStyle = '#b3414f'; ctx.beginPath(); ctx.ellipse(64*u, 0, 64*u, 26*u, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = '#7e2c38'; ctx.beginPath(); ctx.ellipse(64*u, 8*u, 64*u, 18*u, 0, 0.15, Math.PI-0.15); ctx.fill();
-    ctx.fillStyle = '#e8e2d2'; ctx.beginPath(); ctx.ellipse(64*u, -8*u, 60*u, 12*u, 0, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(64*u,0,64*u,26*u,0,0,7); stroke(ENV.out, 2);
-    ctx.fillStyle = '#6b4a2a'; roundRect(34*u, 22*u, 64*u, 16*u, 4*u); ctx.fill(); stroke(ENV.out,2);
-    ctx.fillStyle = '#d8b15a'; poly([42*u,22*u, 42*u,4*u, 60*u,22*u]); ctx.fill(); stroke(ENV.out,2);
-    ctx.restore();
-  }
-
-  function drawHills(scroll, gy, vw, vh) {
-    const tw = 260*SC, off = scroll % tw;
-    for (let i=-1; i*tw - off < vw + tw; i++) {
-      const x = i*tw - off;
-      ctx.fillStyle = ENV.hill;
-      ctx.beginPath(); ctx.ellipse(x + tw*0.5, gy + 36*SC, tw*0.62, 64*SC, 0, Math.PI, 0); ctx.fill();
-      ctx.fillStyle = ENV.hillRim;
-      ctx.beginPath(); ctx.ellipse(x + tw*0.5, gy + 36*SC, tw*0.62, 64*SC, 0, Math.PI*1.15, Math.PI*1.85); ctx.fill();
-      drawTree(x + tw*0.78, gy);
-    }
-  }
-
-  function drawTree(x, gy) {
-    const u = SC;
-    ctx.fillStyle = ENV.trunk; ctx.fillRect(x-4*u, gy-30*u, 8*u, 32*u);
-    roundRect(x-4*u, gy-30*u, 8*u, 32*u, 2); stroke(ENV.out, 2);
-    ctx.fillStyle = ENV.leaf;
-    ctx.beginPath(); ctx.arc(x, gy-40*u, 20*u, 0, 7); ctx.arc(x-12*u, gy-34*u, 13*u, 0, 7); ctx.arc(x+12*u, gy-36*u, 13*u, 0, 7); ctx.fill();
-    ctx.fillStyle = ENV.leafSh;
-    ctx.beginPath(); ctx.arc(x+7*u, gy-34*u, 14*u, 0, 7); ctx.fill();
-    ctx.fillStyle = ENV.leafLit;
-    ctx.beginPath(); ctx.arc(x-7*u, gy-46*u, 9*u, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.arc(x, gy-40*u, 20*u, 0, 7); ctx.arc(x-12*u, gy-34*u, 13*u, 0, 7); ctx.arc(x+12*u, gy-36*u, 13*u, 0, 7); stroke(ENV.out, 2);
-  }
-
-  function drawFeather(x, y, r, rot) {
-    ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(rot)*0.6);
-    ctx.fillStyle = 'rgba(255,228,150,.55)';
-    ctx.beginPath(); ctx.ellipse(0,0,r,r*0.42,0,0,7); ctx.fill();
-    ctx.restore();
-  }
-
-  /* ========================= FOREGROUND ========================= */
-  function drawGround(vw, vh, gy, w) {
-    if (w.score >= 500) { drawForestGround(vw, vh, gy, w); return; }
-    ctx.fillStyle = ENV.ground; ctx.fillRect(0, gy, vw, vh-gy);
-    ctx.fillStyle = ENV.groundTop; ctx.fillRect(0, gy, vw, 7*SC);
-    ctx.fillStyle = ENV.dirt;
-    const off = w.scroll % (44*SC);
-    for (let x=-off; x<vw; x+=44*SC) { roundRect(x, gy+18*SC, 9*SC, 5*SC, 2); ctx.fill(); }
-    ctx.strokeStyle = ENV.tuft; ctx.lineWidth = 2*SC; ctx.lineCap='round';
-    for (let x=-off; x<vw; x+=44*SC) {
-      ctx.beginPath(); ctx.moveTo(x+22*SC, gy+8*SC); ctx.lineTo(x+22*SC, gy+1*SC);
-      ctx.moveTo(x+26*SC, gy+8*SC); ctx.lineTo(x+28*SC, gy+2*SC); ctx.stroke();
-    }
-  }
-
-  function drawSnake(o) {
-    const u = SC;
-    const bot = o.y + o.h, top = o.y, cx = o.x + o.w * 0.5;
-    const segments = Math.max(2, Math.round(o.h / (10*u)));
-    for (let i = 0; i <= segments; i++) {
-      const t = i / segments;
-      const sy = bot - t * o.h;
-      const r = Math.max(3*u, (8 - t*3) * u);
-      ctx.fillStyle = i % 2 === 0 ? '#2a8a1a' : '#3aaa24';
-      ctx.beginPath(); ctx.ellipse(cx, sy, r, r*0.85, 0, 0, 7); ctx.fill();
-    }
-    ctx.fillStyle = '#2a8a1a';
-    ctx.beginPath(); ctx.ellipse(cx, top, 10*u, 8*u, 0, 0, 7); ctx.fill();
-    ctx.fillStyle = '#4ac030';
-    ctx.beginPath(); ctx.ellipse(cx-2*u, top-2*u, 5*u, 4*u, -0.3, 0, 7); ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(cx-4*u, top-2*u, 2.5*u, 0, 7); ctx.arc(cx+4*u, top-2*u, 2.5*u, 0, 7); ctx.fill();
-    ctx.fillStyle = '#111';
-    ctx.beginPath(); ctx.arc(cx-3.5*u, top-2*u, 1.2*u, 0, 7); ctx.arc(cx+4.5*u, top-2*u, 1.2*u, 0, 7); ctx.fill();
-    ctx.strokeStyle = '#ff3030'; ctx.lineWidth = 1.5*u; ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(cx, top+5*u); ctx.lineTo(cx, top+10*u);
-    ctx.lineTo(cx-3*u, top+14*u); ctx.moveTo(cx, top+10*u); ctx.lineTo(cx+3*u, top+14*u);
-    ctx.stroke();
-    ctx.beginPath(); ctx.ellipse(cx, top, 10*u, 8*u, 0, 0, 7); stroke(ENV_FOREST.out, 2);
-  }
-
-  function drawObstacle(o) {
-    if (o.type === 'snake') { drawSnake(o); return; }
-    if (o.type === 'ground') {
-      ctx.fillStyle = '#7a5a86'; roundRect(o.x, o.y, o.w, o.h, 5*SC); ctx.fill();
-      ctx.fillStyle = '#5e4068'; roundRect(o.x + o.w*0.5, o.y, o.w*0.5, o.h, 5*SC); ctx.fill();
-      roundRect(o.x, o.y, o.w, o.h, 5*SC); stroke(ENV.out, 2);
-      ctx.fillStyle = ENV.crystal;
-      roundRect(o.x + o.w*0.32, o.y + o.h*0.18, o.w*0.18, o.h*0.5, 2); ctx.fill();
-    } else {
-      const u = SC;
-      ctx.save(); ctx.translate(o.x, o.y);
-      const up = ((frame>>3)&1) ? -11*u : 7*u;
-      ctx.fillStyle = '#9b86ff';
-      poly([18*u,12*u, 2*u,up, 22*u,16*u]); ctx.fill();
-      poly([26*u,12*u, 42*u,up, 24*u,16*u]); ctx.fill();
-      ctx.fillStyle = '#7a5cff'; ctx.beginPath(); ctx.ellipse(22*u,15*u,15*u,9*u,0,0,7); ctx.fill();
-      ctx.beginPath(); ctx.ellipse(22*u,15*u,15*u,9*u,0,0,7); stroke(ENV.out, 2);
-      ctx.fillStyle = '#ff9b2e'; poly([35*u,13*u, 47*u,15*u, 35*u,17*u]); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(30*u,12*u,3*u,0,7); ctx.fill();
-      ctx.fillStyle = '#161616'; ctx.beginPath(); ctx.arc(31*u,12*u,1.6*u,0,7); ctx.fill();
-      ctx.restore();
-    }
-  }
-
   function drawGil(g, anim) {
     const bob = Math.sin(anim*0.12 + g.bob) * 3*SC, y = g.y + bob;
     const sx = Math.abs(Math.cos(anim*0.1 + g.bob));
@@ -891,10 +443,13 @@
     ctx.beginPath(); ctx.rect(view.x, view.y, view.w, view.h); ctx.clip();
     ctx.translate(view.x, view.y);
 
-    drawBackground(view.w, view.h, view.gy, w);
-    drawGround(view.w, view.h, view.gy, w);
+    const lv = CR.Levels.getWorldLevel(w, gameMode, startLevel);
+    CR.Levels.drawBackground(view.w, view.h, view.gy, w, lv);
+    CR.Levels.drawGround(view.w, view.h, view.gy, w, lv);
+
     for (const g of w.gils) drawGil(g, w.anim);
-    for (const o of w.obstacles) drawObstacle(o);
+    for (const o of w.obstacles)  CR.Enemies.drawObstacle(o);
+    for (const p of w.projectiles) CR.Enemies.drawProjectile(p);
     drawChocobo(w, view.gy);
     drawSparkles(w);
 
@@ -920,6 +475,8 @@
   }
 
   function render() {
+    CR.Levels.setRenderCtx({ ctx, SC, airship, frame });
+    CR.Enemies.setRenderCtx({ ctx, SC, frame });
     ctx.clearRect(0,0,W,H);
     viewports.forEach((v, i) => renderView(v, worlds[i] || worlds[0]));
     if (numPlayers === 2) { ctx.fillStyle = '#0c0913'; ctx.fillRect(0, H/2-2, W, 4); }
@@ -931,7 +488,6 @@
     requestAnimationFrame(loop);
   }
 
-  // démarrage : monde de fond pour l'écran de menu
   configure(1); reset();
   showMenu();
   loop();
